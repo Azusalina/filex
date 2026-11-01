@@ -84,7 +84,7 @@ class NavigationFeatures(unittest.TestCase):
         self.assertIn("不可用", info["created"])
         self.assertEqual(info["size_bytes"], path.stat().st_size)
         self.assertIn("Modified", metadata_text(info))
-        self.assertIn("目录自身", metadata(self.root)["size_note"])
+        self.assertIn("递归文件总大小", metadata(self.root)["size_note"])
         self.assertIn("error", metadata(self.root / "missing"))
 
     def test_extension_defaults_colors_and_safe_argument_arrays(self):

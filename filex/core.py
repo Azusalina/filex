@@ -131,7 +131,11 @@ class Browser:
             def key(entry):
                 name, directory, _, size, modified, _ = entry
                 value = name.casefold() if self.config.sort == "name" else -size if self.config.sort == "size" else -modified
-                rule = {**self.config.order, **self.config.directory_order.get(node.path.name, {}), **self.config.directory_order.get(str(node.path), {})}
+                rule = dict(self.config.order)
+                for ancestor in reversed((node.path, *node.path.parents)):
+                    rule.update(self.config.recursive_order.get(str(ancestor), {}))
+                rule.update(self.config.directory_order.get(node.path.name, {}))
+                rule.update(self.config.directory_order.get(str(node.path), {}))
                 top, bottom = rule.get("top", []), rule.get("bottom", [])
                 import re
                 def matches(pattern):

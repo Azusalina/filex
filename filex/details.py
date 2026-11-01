@@ -1,6 +1,7 @@
 """Filesystem metadata, including true birth time when supported."""
 from datetime import datetime
 from pathlib import Path
+import os
 import shutil
 import stat
 import subprocess
@@ -31,6 +32,38 @@ def birth_time(path, info):
         return None
 
 
+def folder_contents(path):
+    size = files = skipped = 0
+    stack = []
+    try:
+        stack.append(os.scandir(path))
+        while stack:
+            try:
+                entry = next(stack[-1])
+            except StopIteration:
+                stack.pop().close()
+                continue
+            except OSError:
+                skipped += 1
+                stack.pop().close()
+                continue
+            try:
+                info = entry.stat(follow_symlinks=False)
+                if stat.S_ISDIR(info.st_mode):
+                    stack.append(os.scandir(entry.path))
+                elif stat.S_ISREG(info.st_mode):
+                    size += info.st_size
+                    files += 1
+            except OSError:
+                skipped += 1
+    except OSError:
+        skipped += 1
+    finally:
+        for entries in stack:
+            entries.close()
+    return size, files, skipped
+
+
 def metadata(path, root=None, config=None):
     path = Path(path).absolute()
     try:
@@ -38,13 +71,16 @@ def metadata(path, root=None, config=None):
         created = birth_time(path, info)
         directory = stat.S_ISDIR(info.st_mode)
         kind = "目录" if directory else "符号链接" if stat.S_ISLNK(info.st_mode) else "普通文件" if stat.S_ISREG(info.st_mode) else "特殊文件"
+        size, count, skipped = folder_contents(path) if directory else (info.st_size, 0, 0)
+        note = (f"递归文件总大小（{count} 个文件；含隐藏项；不跟随链接；硬链接按路径计数）"
+                + (f"；不完整：{skipped} 项无法读取" if skipped else "")) if directory else "符号链接自身大小" if stat.S_ISLNK(info.st_mode) else ""
         return {
             **details(path, root if root is not None else path.absolute().parent, info, config),
             "name": safe_text(path.name or str(path)), "path": safe_text(path), "kind": kind,
             "created": datetime.fromtimestamp(created).astimezone().strftime("%Y-%m-%d %H:%M:%S %Z") if created is not None else "不可用（文件系统未提供）",
             "modified": datetime.fromtimestamp(info.st_mtime).astimezone().strftime("%Y-%m-%d %H:%M:%S %Z"),
-            "size": f"{human_size(info.st_size)} ({info.st_size:,} bytes)", "size_bytes": info.st_size,
-            "size_note": "目录自身大小，不包含子文件总量" if directory else "符号链接自身大小" if stat.S_ISLNK(info.st_mode) else "",
+            "size": f"{human_size(size)} ({size:,} bytes)", "size_bytes": size,
+            "size_note": note,
         }
     except OSError as exc:
         return {"name": safe_text(path.name), "path": safe_text(path), "error": safe_text(exc)}

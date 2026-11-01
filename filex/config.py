@@ -46,7 +46,7 @@ def key_code(key):
 
 
 def key_map(config):
-    return {**{key_code(key): action for action, key in config.keys.items()}, "R": "rename", "ctrl+alt+c": "copy_path", "\x0e": "new_file", "ctrl+shift+n": "new_folder", "ctrl+f5": "refresh"}
+    return {"ctrl+alt+n": "new_folder", **{key_code(key): action for action, key in config.keys.items()}, "R": "rename", "ctrl+alt+c": "copy_path", "\x0e": "new_file", "ctrl+shift+n": "new_folder", "ctrl+f5": "refresh"}
 
 
 def navigation_keys():
@@ -104,6 +104,7 @@ class Config:
     path_color: str = _THEME["colors"]["path_color"]
     order: dict = field(default_factory=dict)
     directory_order: dict = field(default_factory=dict)
+    recursive_order: dict = field(default_factory=dict)
     git: dict = field(default_factory=dict)
     keys: dict = field(default_factory=lambda: DEFAULT_KEYS.copy())
     openers: dict = field(default_factory=lambda: {k: {**v, "command": v["command"].copy()} for k, v in DEFAULT_OPENERS.items()})
@@ -140,15 +141,19 @@ def load_config(path=None):
     except (OSError, tomllib.TOMLDecodeError) as exc:
         raise ValueError(f"无法读取配置 {path}: {exc}") from exc
     data.pop("gui", None)  # Retired configuration.
-    for section in ("order", "directory_order", "git"):
+    for section in ("order", "directory_order", "recursive_order", "git"):
         value = data.pop(section, {})
         if not isinstance(value, dict):
             raise ValueError(f"{section}: 应为表")
         if section != "git":
-            rules = value.values() if section == "directory_order" else [value]
+            rules = value.values() if section in {"directory_order", "recursive_order"} else [value]
             for rule in rules:
                 if not isinstance(rule, dict) or rule.keys() - {"top", "bottom", "sequence"} or any(not isinstance(names,list) or not all(isinstance(n,str) and n and '/' not in n and '\\' not in n for n in names) for names in rule.values()):
                     raise ValueError(f"{section}: 应为 top / bottom 名称列表")
+        if section == "recursive_order":
+            if any(not Path(k).expanduser().is_absolute() for k in value):
+                raise ValueError("recursive_order requires an absolute or ~/ path")
+            value = {str(Path(k).expanduser().resolve()): rule for k, rule in value.items()}
         setattr(conf, section, value)
     allowed = {"browser", "layout", "preview", "colors", "keys", "search", "dashboard", "openers", "open_defaults", "extension_colors", "folder_colors", "tmux", "input_method", "links", "terminal"}
     unknown = data.keys() - allowed
